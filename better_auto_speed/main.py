@@ -221,8 +221,8 @@ class BetterAutoSpeed:
         self._check_homed(gcmd)
 
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
-        save = gcmd.get_int('SAVE', 0, minval=0, maxval=1)
-        couple = gcmd.get_int('COUPLE', 0, minval=0, maxval=1)
+        save = gcmd.get_int('SAVE', 1, minval=0, maxval=1)
+        couple = gcmd.get_int('COUPLE', 1, minval=0, maxval=1)
 
         # Coupling inputs: hold one quantity fixed and find the other.
         # VELOC is an alias for VELOCITY at this level.
@@ -247,11 +247,8 @@ class BetterAutoSpeed:
                 coord = [None, None, move_z]
                 self._move(coord, self._position_speed(coord, self.th_veloc))
 
-            if couple:
-                # Sweep velocities, measure max accel at each, and recommend the
-                # best combined pair for this printer (highest throughput).
-                self._couple_sweep(gcmd, save, validate)
-            elif accel_in is not None and veloc_in is not None:
+            # Explicit fixed values take precedence over the (default) sweep.
+            if accel_in is not None and veloc_in is not None:
                 # Both supplied: nothing to search, report/save/validate the pair.
                 self._finalize_pair(gcmd, accel_in, veloc_in, save, validate)
             elif accel_in is not None:
@@ -264,6 +261,10 @@ class BetterAutoSpeed:
                 gcmd._params["VELOCITY"] = veloc_in
                 accel_results = self.cmd_BETTER_AUTO_SPEED_ACCEL(gcmd)
                 self._finalize_pair(gcmd, accel_results.vals['rec'], veloc_in, save, validate)
+            elif couple:
+                # Default: sweep velocities, measure max accel at each, and
+                # recommend the best combined pair (highest throughput).
+                self._couple_sweep(gcmd, save, validate)
             else:
                 start = perf_counter()
                 accel_results = self.cmd_BETTER_AUTO_SPEED_ACCEL(gcmd)

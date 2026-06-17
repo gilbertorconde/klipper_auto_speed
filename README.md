@@ -12,12 +12,7 @@ _With one copy/paste and one line in your configuration, automatically optimize 
 >
 > This is an enhanced version of Klipper Auto Speed, built on top of the original project created by [Anonoei](https://github.com/Anonoei/klipper_auto_speed). Full credit for the original idea and implementation belongs to the original author.
 >
-> This is a **separate, branched project — not a fork intended to upstream changes back** to the original repository. It is maintained independently at [gilbertorconde/klipper_auto_speed](https://github.com/gilbertorconde/klipper_auto_speed) and layers additional features and fixes on top of the original, including:
->
-> - Per-axis motor current overrides (`X_CURRENT` / `Y_CURRENT` / `Z_CURRENT`)
-> - Per-axis homing-speed overrides (`X_HOMING_SPEED` / `Y_HOMING_SPEED` / `Z_HOMING_SPEED`)
-> - Size-aware acceleration/velocity search bounds derived from each axis's usable travel
-> - Saving recommended results back to your printer config (`SAVE=1`)
+> This is a **separate, branched project — not a fork intended to upstream changes back** to the original repository. It is maintained independently at [gilbertorconde/klipper_auto_speed](https://github.com/gilbertorconde/klipper_auto_speed) and layers additional features and fixes on top of the original.
 >
 > Please direct installation and issues to **this** repository rather than the original.
 
@@ -66,8 +61,10 @@ This project is a branched, independently-maintained continuation of the origina
 
 ## Example Usage
 
-- Default usage (find max accel/velocity)
+- Default usage (couple sweep + save the recommended pair)
   - `BETTER_AUTO_SPEED`
+- Legacy independent accel + velocity search (no coupling), without saving
+  - `BETTER_AUTO_SPEED COUPLE=0 SAVE=0`
 - Find maximum acceleration on y axis
   - `BETTER_AUTO_SPEED_ACCEL AXIS="y"`
 - Find maximum acceleration on y, then x axis
@@ -82,7 +79,7 @@ This project is a branched, independently-maintained continuation of the origina
   - `BETTER_AUTO_SPEED ACCEL=10000`
 - Find what acceleration is usable at a fixed velocity
   - `BETTER_AUTO_SPEED VELOC=500`
-- Find the best combined accel/velocity pair for your printer
+- Find the best combined accel/velocity pair for your printer (this is the default)
   - `BETTER_AUTO_SPEED COUPLE=1`
 
 ## How does it work?
@@ -241,12 +238,12 @@ VELOCITY_MAX | auto | Maximum velocity test may try (auto: `sqrt(accel_max * axi
 VELOCITY_ACCU | 0.05 | Keep binary searching until the result is within this percentage
 ACCEL | Unset | Couple mode: hold this acceleration fixed and search for the velocity that works with it (skips the accel search)
 VELOC | Unset | Couple mode: hold this velocity fixed and search for the acceleration that works with it (alias: `VELOCITY`)
-COUPLE | 0 | Sweep velocities, measure max accel at each, and recommend the best combined accel/velocity pair for your printer
-VELOCITY_DIV | 5 | Number of velocities to sweep when `COUPLE=1`
-MOTOR_OFF | from config | Issue M84 (disable steppers) once the run finishes (defaults to the `motor_off` config value)
+COUPLE | 1 | Sweep velocities, measure max accel at each, and recommend the best combined accel/velocity pair for your printer. Set `COUPLE=0` for the legacy independent accel + velocity search. Ignored when `ACCEL` or `VELOC` is given
+VELOCITY_DIV | 5 | Number of velocities to sweep when coupling
+MOTOR_OFF | 0 | Disable steppers (`M84`) when the run finishes. Overrides the `motor_off` config value for a single run
 LEVEL | 1 | Level the printer if it's not leveled
 VARIANCE | 1 | Check endstop variance
-SAVE | 0 | Queue recommended max_accel/max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)
+SAVE | 1 | Queue recommended max_accel/max_velocity to `[printer]` (run `SAVE_CONFIG` to apply). Set `SAVE=0` to only print the results
 X_CURRENT | Unset | Motor run-current (A) applied to the X axis during the run, restored after (requires TMC drivers)
 Y_CURRENT | Unset | Motor run-current (A) applied to the Y axis during the run, restored after (requires TMC drivers)
 Z_CURRENT | Unset | Motor run-current (A) applied to the Z axis during the run, restored after (requires TMC drivers)
@@ -262,9 +259,9 @@ Acceleration and velocity are not independent: within a fixed travel distance, a
 
 - **`ACCEL=<value>`** holds that acceleration fixed and searches for the velocity that works with it (the acceleration search is skipped). Answers "what velocity can I use at this accel?"
 - **`VELOC=<value>`** (alias `VELOCITY`) holds that velocity fixed and searches for the acceleration that works with it. Answers "what accel can I use at this velocity?"
-- **`COUPLE=1`** sweeps `VELOCITY_DIV` cruise velocities between the (size-aware) velocity bounds, measures the maximum acceleration that passes at each (like `BETTER_AUTO_SPEED_GRAPH`, per axis), then recommends the single accel/velocity pair with the highest throughput.
+- **`COUPLE=1`** (the default) sweeps `VELOCITY_DIV` cruise velocities between the (size-aware) velocity bounds, measures the maximum acceleration that passes at each (per axis), then recommends the single accel/velocity pair with the highest throughput. Pass `COUPLE=0` to fall back to the legacy independent accel + velocity search. `COUPLE` is ignored when you give a fixed `ACCEL` or `VELOC`.
 
-The throughput metric is the time of a representative point-to-point move sized to your printer (the shortest tested axis travel), using the standard trapezoidal/triangular motion model (`t = v/a + D/v`, or `2*sqrt(D/a)` when the move never reaches cruise). The pair with the lowest move time wins. When multiple axes are tested, the acceleration at each velocity is the minimum measured across axes so the recommended pair is safe everywhere. `DERATE` is applied to the recommended values, and `SAVE=1`/`VALIDATE=1` work as usual. The sweep runs a full acceleration search at every velocity, so it takes considerably longer than a single `BETTER_AUTO_SPEED` run.
+The throughput metric is the time of a representative point-to-point move sized to your printer (the shortest tested axis travel), using the standard trapezoidal/triangular motion model (`t = v/a + D/v`, or `2*sqrt(D/a)` when the move never reaches cruise). The pair with the lowest move time wins. Each accel attempt runs over the axis' full usable travel so the toolhead truly reaches the cruise velocity; any velocity for which no acceleration passes is reported as *infeasible* and excluded. When multiple axes are tested, the acceleration at each velocity is the minimum measured across axes so the recommended pair is safe everywhere. `DERATE` is applied to the recommended values, and `SAVE`/`VALIDATE` work as usual (`SAVE` defaults to `1`). The sweep runs a full acceleration search at every velocity, so it takes considerably longer than the legacy `COUPLE=0` run.
 
 #### BETTER_AUTO_SPEED_ACCEL
 
