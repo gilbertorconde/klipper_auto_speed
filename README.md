@@ -151,11 +151,26 @@ cd klipper_auto_speed
 
 #### Update klippy-env
 
+The installer checks the Python used by Klipper's virtual environment (`~/klippy-env/bin/python`), not your system `python3`. If that env still uses Python 2, recreate/upgrade it:
+
 1.  `sudo apt install python3`
 2.  `sudo apt install python3-numpy`
 3.  `sudo systemctl stop klipper`
-4.  `python3 -m venv --update ~/klippy-env`
+4.  `python3 -m venv --upgrade ~/klippy-env`
 5.  `~/klippy-env/bin/pip install -r "~/klipper/scripts/klippy-requirements.txt"`
+
+Check the env's Python version with `~/klippy-env/bin/python --version`.
+
+#### Uninstallation
+
+Run the `uninstall.sh` script to remove the module from Klipper:
+
+```
+cd ~/klipper_auto_speed
+./uninstall.sh
+```
+
+It removes the `better_auto_speed` link from `~/klipper/klippy/extras` and restarts Klipper. Afterwards, delete the `[better_auto_speed]` section (and any `BETTER_AUTO_SPEED`-saved values) from your `printer.cfg`, then restart Klipper once more.
 
 ### Configuration
 
@@ -187,12 +202,18 @@ The values listed below are the defaults Better Auto Speed uses. You can include
 
 #derate: 0.8           ; Derate discovered results by this amount
 
+#z_position_speed: 25  ; Speed (mm/s) for positioning moves that change Z, e.g. centering/Z= move. Keeps belted/Trident Z from slamming after leveling
+#motor_off: 0          ; Issue M84 (disable steppers) once the run finishes
+
 #validate_margin: Unset      ; Margin for VALIDATE, Defaults to margin
 #validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
 #validate_iterations: 50     ; Perform VALIDATE pattern this many times
 
 #results_dir: ~/printer_data/config ; Destination directory for graphs
 ```
+
+> [!WARNING]
+> If your Z axis is homed with a probe / virtual endstop (e.g. Klipper Tap, or `endstop_pin: probe:z_virtual_endstop`), missed-step detection on Z is unreliable. Better Auto Speed will warn you, and any Z results may be over-optimistic — treat them with caution.
 
 ### Macro
 
@@ -222,6 +243,7 @@ ACCEL | Unset | Couple mode: hold this acceleration fixed and search for the vel
 VELOC | Unset | Couple mode: hold this velocity fixed and search for the acceleration that works with it (alias: `VELOCITY`)
 COUPLE | 0 | Sweep velocities, measure max accel at each, and recommend the best combined accel/velocity pair for your printer
 VELOCITY_DIV | 5 | Number of velocities to sweep when `COUPLE=1`
+MOTOR_OFF | from config | Issue M84 (disable steppers) once the run finishes (defaults to the `motor_off` config value)
 LEVEL | 1 | Level the printer if it's not leveled
 VARIANCE | 1 | Check endstop variance
 SAVE | 0 | Queue recommended max_accel/max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)

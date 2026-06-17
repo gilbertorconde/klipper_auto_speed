@@ -53,15 +53,23 @@ class BetterAutoSpeed:
 
         self.derate = config.getfloat('derate', default=0.8, above=0.0, below=1.0)
 
+        # Speed used for positioning moves that change Z (centering, Z= move,
+        # per-attempt prep). Keeps belted/Trident Z from slamming after leveling.
+        self.z_position_speed = config.getfloat('z_position_speed', default=25.0, above=0.0)
+        # Drop motors (M84) once the run finishes.
+        self.motor_off = config.getboolean('motor_off', default=False)
+
         self.validate_margin       = config.getfloat('validate_margin', default=self.margin, above=0.0)
         self.validate_inner_margin = config.getfloat('validate_inner_margin', default=20.0, above=0.0)
         self.validate_iterations   = config.getint(  'validate_iterations', default=50, minval=1)
 
         results_default = os.path.expanduser('~')
-        for path in ( # Could be problematic if neither of these paths work
-            os.path.dirname(self.printer.start_args['log_file']),
-            os.path.expanduser('~/printer_data/config'),
-            ):
+        candidate_paths = [os.path.expanduser('~/printer_data/config')]
+        # klippy may run without a log file (logs to stdout); guard the lookup.
+        log_file = self.printer.start_args.get('log_file')
+        if log_file:
+            candidate_paths.insert(0, os.path.dirname(log_file))
+        for path in candidate_paths:
             if os.path.exists(path):
                 results_default = path
         self.results_dir = os.path.expanduser(config.get('results_dir',default=results_default))
@@ -106,6 +114,10 @@ class BetterAutoSpeed:
         self.th_accel = self.toolhead.max_accel/2
         self.th_veloc = self.toolhead.max_velocity/2
         self.th_scv = self.toolhead.square_corner_velocity
+        # Original cruise-ratio limit, restored after a run. Newer Klipper uses
+        # min_cruise_ratio; we neutralize it during tests so short moves reach
+        # the requested velocity (otherwise accel results are inflated).
+        self.th_min_cruise_ratio = getattr(self.toolhead, 'min_cruise_ratio', None)
 
         # Find and define leveling method
         if self.printer.lookup_object("screw_tilt_adjust", None) is not None:
@@ -232,7 +244,8 @@ class BetterAutoSpeed:
 
             move_z = gcmd.get_int('Z', None)
             if move_z is not None:
-                self._move([None, None, move_z], self.th_veloc)
+                coord = [None, None, move_z]
+                self._move(coord, self._position_speed(coord, self.th_veloc))
 
             if couple:
                 # Sweep velocities, measure max accel at each, and recommend the
@@ -281,6 +294,9 @@ class BetterAutoSpeed:
                     self.cmd_BETTER_AUTO_SPEED_VALIDATE(gcmd)
         finally:
             self._restore_overrides(override_state)
+            self._restore_velocity_limits()
+            if gcmd.get_int('MOTOR_OFF', 1 if self.motor_off else 0, minval=0, maxval=1):
+                self.gcode._process_commands(["M84"], False)
 
     def _finalize_pair(self, gcmd, accel, velocity, save, validate):
         # Report a coupled accel/velocity pair, then optionally save/validate it.
@@ -300,6 +316,7 @@ class BetterAutoSpeed:
         # each (per axis), combine conservatively across axes, then pick the pair
         # that minimizes the time of a representative move sized to the printer.
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        axes = self._prepare_axes(axes)
 
         margin     = gcmd.get_float("MARGIN", self.margin, above=0.0)
         derate     = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -379,6 +396,7 @@ class BetterAutoSpeed:
         override_state = self._apply_overrides(gcmd)
         try:
             axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+            axes = self._prepare_axes(axes)
 
             margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
             derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -435,6 +453,7 @@ class BetterAutoSpeed:
             return rw
         finally:
             self._restore_overrides(override_state)
+            self._restore_velocity_limits()
 
     cmd_BETTER_AUTO_SPEED_VELOCITY_help = ("Automatically find your printer's maximum velocity")
     def cmd_BETTER_AUTO_SPEED_VELOCITY(self, gcmd):
@@ -442,6 +461,7 @@ class BetterAutoSpeed:
         override_state = self._apply_overrides(gcmd)
         try:
             axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+            axes = self._prepare_axes(axes)
 
             margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
             derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -501,6 +521,7 @@ class BetterAutoSpeed:
             return rw
         finally:
             self._restore_overrides(override_state)
+            self._restore_velocity_limits()
 
     cmd_BETTER_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_BETTER_AUTO_SPEED_VALIDATE(self, gcmd):
@@ -531,12 +552,16 @@ class BetterAutoSpeed:
             return valid
         finally:
             self._restore_overrides(override_state)
+            self._restore_velocity_limits()
 
     cmd_BETTER_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
     def cmd_BETTER_AUTO_SPEED_GRAPH(self, gcmd):
-        import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
+        import matplotlib          # this may fail if matplotlib isn't installed
+        matplotlib.use('Agg')      # headless: render straight to a file, no display
+        import matplotlib.pyplot as plt
         self._check_homed(gcmd)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        axes = self._prepare_axes(axes)
 
         margin     = gcmd.get_float("MARGIN", self.margin, above=0.0)
         derate     = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -568,38 +593,42 @@ class BetterAutoSpeed:
         aw.max_missed = max_missed
         aw.margin = margin
         aw.scv = scv
-        for axis in axes:
-            start = perf_counter()
-            self.init_axis(aw, axis)
-            accels = []
-            accel_mins = []
-            accel_maxs = []
-            for veloc in velocs:
-                self.gcode.respond_info(f"BETTER AUTO SPEED graph {aw.axis} - v{veloc}")
-                aw.veloc = veloc
-                aw.min = round(calculate_graph(veloc, accel_min_slope))
-                aw.max = round(calculate_graph(veloc, accel_max_slope))
-                accel_mins.append(aw.min)
-                accel_maxs.append(aw.max)
-                accels.append(self.binary_search(aw))
-            plt.plot(velocs, accels, 'go-', label='measured')
-            plt.plot(velocs, [a*derate for a in accels], 'g-', label='derated')
-            plt.plot(velocs, accel_mins, 'b--', label='min')
-            plt.plot(velocs, accel_maxs, 'r--', label='max')
-            plt.legend(loc='upper right')
-            plt.title(f"Max accel at velocity on {aw.axis} to {int(accel_accu*100)}% accuracy")
-            plt.xlabel("Velocity")
-            plt.ylabel("Acceleration")
-            filepath = os.path.join(
-                self.results_dir,
-                f"BETTER_AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H:%M:%S}_{aw.axis}.png"
-            )
-            self.gcode.respond_info(f"Velocs: {velocs}")
-            self.gcode.respond_info(f"Accels: {accels}")
-            self.gcode.respond_info(f"BETTER AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {filepath}")
-            os.makedirs(self.results_dir, exist_ok=True)
-            plt.savefig(filepath, bbox_inches='tight')
-            plt.close()
+        try:
+            for axis in axes:
+                start = perf_counter()
+                self.init_axis(aw, axis)
+                accels = []
+                accel_mins = []
+                accel_maxs = []
+                for veloc in velocs:
+                    self.gcode.respond_info(f"BETTER AUTO SPEED graph {aw.axis} - v{veloc}")
+                    aw.veloc = veloc
+                    aw.min = round(calculate_graph(veloc, accel_min_slope))
+                    aw.max = round(calculate_graph(veloc, accel_max_slope))
+                    accel_mins.append(aw.min)
+                    accel_maxs.append(aw.max)
+                    accels.append(self.binary_search(aw))
+                plt.plot(velocs, accels, 'go-', label='measured')
+                plt.plot(velocs, [a*derate for a in accels], 'g-', label='derated')
+                plt.plot(velocs, accel_mins, 'b--', label='min')
+                plt.plot(velocs, accel_maxs, 'r--', label='max')
+                plt.legend(loc='upper right')
+                plt.title(f"Max accel at velocity on {aw.axis} to {int(accel_accu*100)}% accuracy")
+                plt.xlabel("Velocity")
+                plt.ylabel("Acceleration")
+                # Colons in the timestamp break file transfers to Windows/CIFS/exFAT.
+                filepath = os.path.join(
+                    self.results_dir,
+                    f"BETTER_AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H-%M-%S}_{aw.axis}.png"
+                )
+                self.gcode.respond_info(f"Velocs: {velocs}")
+                self.gcode.respond_info(f"Accels: {accels}")
+                self.gcode.respond_info(f"BETTER AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {filepath}")
+                os.makedirs(self.results_dir, exist_ok=True)
+                plt.savefig(filepath, bbox_inches='tight')
+                plt.close()
+        finally:
+            self._restore_velocity_limits()
 
     # -------------------------------------------------------
     #
@@ -612,7 +641,8 @@ class BetterAutoSpeed:
         start = perf_counter()
         # Level the printer if it's not leveled
         self._level(gcmd)
-        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], self.axis_limits["z"]["center"]], self.th_veloc)
+        center = [self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], self.axis_limits["z"]["center"]]
+        self._move(center, self._position_speed(center, self.th_veloc))
 
         self._variance(gcmd)
 
@@ -698,6 +728,29 @@ class BetterAutoSpeed:
         for axis in raw_axes:
             axes += f"{axis},"
         axes = axes[:-1]
+        return axes
+
+    def _z_uses_probe(self):
+        # True when stepper_z homes via a probe / virtual endstop (e.g. Tap).
+        raw_config = self.printer.lookup_object('configfile').status_raw_config
+        section = raw_config.get('stepper_z')
+        if not section:
+            return False
+        pin = str(section.get('endstop_pin', '')).lower()
+        return 'virtual_endstop' in pin or 'probe:' in pin
+
+    def _prepare_axes(self, axes):
+        # Drop Z when there's no stepper_z data (unsupported/cartesian setups where
+        # Z wasn't captured) and warn when Z is probe-homed (unreliable detection).
+        if "z" in axes and "z" not in self.steppers:
+            self.gcode.respond_info(
+                "BETTER AUTO SPEED warning: no stepper_z data found; skipping Z axis.")
+            axes = [a for a in axes if a != "z"]
+        if "z" in axes and self._z_uses_probe():
+            self.gcode.respond_info(
+                "BETTER AUTO SPEED warning: stepper_z homes via a probe/virtual "
+                "endstop, so missed-step detection on Z is unreliable and results "
+                "may be over-optimistic. Treat Z recommendations with caution.")
         return axes
 
     def _resolve_accel_bounds(self, gcmd, max_dist, veloc_stat):
@@ -812,7 +865,8 @@ class BetterAutoSpeed:
         timeAttempt = perf_counter()
 
         self._set_velocity(self.th_veloc, self.th_accel, self.th_scv)
-        self._move([aw.move.pos["x"][0], aw.move.pos["y"][0], aw.move.pos["z"][0]], self.th_veloc)
+        start_coord = [aw.move.pos["x"][0], aw.move.pos["y"][0], aw.move.pos["z"][0]]
+        self._move(start_coord, self._position_speed(start_coord, self.th_veloc))
         self.toolhead.wait_moves()
         self._set_velocity(aw.veloc, aw.accel, aw.scv)
         timeMove = perf_counter()
@@ -925,6 +979,13 @@ class BetterAutoSpeed:
     def _move(self, coord, speed):
         self.toolhead.manual_move(coord, speed)
 
+    def _position_speed(self, coord, speed):
+        # Cap positioning moves that change Z to z_position_speed so a belted/
+        # Trident Z doesn't slam after leveling. Test moves call _move directly.
+        if len(coord) > 2 and coord[2] is not None:
+            return min(speed, self.z_position_speed)
+        return speed
+
     def _home(self, x=True, y=True, z=True):
         prevAccel = self.toolhead.max_accel
         prevVeloc = self.toolhead.max_velocity
@@ -990,13 +1051,27 @@ class BetterAutoSpeed:
 
         return valid, stop_steps, missed, dur
 
-    def _set_velocity(self, velocity: float, accel: float, scv: float):
+    def _set_velocity(self, velocity: float, accel: float, scv: float, cruise_ratio: float = 0.0):
         #self.gcode.respond_info(f"BETTER AUTO SPEED setting limits to VELOCITY={velocity} ACCEL={accel}")
         self.toolhead.max_velocity = velocity
         self.toolhead.max_accel = accel
-        self.toolhead.requested_accel_to_decel = accel
+        # Disable accel-to-decel / minimum-cruise-ratio limiting so short test
+        # moves actually reach the requested velocity. Klipper changed this API:
+        # newer builds use min_cruise_ratio, older ones requested_accel_to_decel.
+        if hasattr(self.toolhead, 'min_cruise_ratio'):
+            self.toolhead.min_cruise_ratio = cruise_ratio
+        if hasattr(self.toolhead, 'requested_accel_to_decel'):
+            self.toolhead.requested_accel_to_decel = accel
         self.toolhead.square_corner_velocity = scv
-        self.toolhead._calc_junction_deviation()
+        if hasattr(self.toolhead, '_calc_junction_deviation'):
+            self.toolhead._calc_junction_deviation()
+
+    def _restore_velocity_limits(self):
+        # Put the user's minimum-cruise-ratio back after a run.
+        if self.th_min_cruise_ratio is not None and hasattr(self.toolhead, 'min_cruise_ratio'):
+            self.toolhead.min_cruise_ratio = self.th_min_cruise_ratio
+            if hasattr(self.toolhead, '_calc_junction_deviation'):
+                self.toolhead._calc_junction_deviation()
 
     TMC_DRIVERS = ("tmc2209", "tmc2208", "tmc2240", "tmc5160", "tmc2130", "tmc2660", "tmc2160")
 

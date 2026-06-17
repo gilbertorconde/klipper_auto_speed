@@ -18,9 +18,12 @@ if [ "$(id -u)" -eq 0 ]; then
     exit -1
 fi
 
-# Check if Klipper is installed
-if [ "$(sudo systemctl list-units --full -all -t service --no-legend | grep -F "klipper.service")" ]; then
-    echo "Klipper service found!"
+# Check if Klipper is installed. Match the default klipper.service as well as
+# multi-instance units like klipper-<name>.service.
+KLIPPER_SERVICES="$(sudo systemctl list-units --full -all -t service --no-legend \
+    | grep -oE 'klipper(-[^. ]+)?\.service' | sort -u)"
+if [ -n "${KLIPPER_SERVICES}" ]; then
+    echo "Klipper service(s) found: $(echo ${KLIPPER_SERVICES} | tr '\n' ' ')"
 else
     echo "Klipper service not found, please install Klipper first"
     exit -1
@@ -40,6 +43,9 @@ done
 echo "Installing matplotlib in klippy..."
 ~/klippy-env/bin/python -m pip install matplotlib
 
-# Restart klipper
+# Restart klipper (every detected instance)
 echo "Restarting Klipper..."
-sudo systemctl restart klipper
+for service in ${KLIPPER_SERVICES}; do
+    echo "  restarting ${service}"
+    sudo systemctl restart "${service}"
+done

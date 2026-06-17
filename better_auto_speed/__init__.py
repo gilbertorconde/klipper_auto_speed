@@ -13,6 +13,10 @@ from .main import BetterAutoSpeed
 def load_config(config): # Called by klipper from [better_auto_speed]
     try:
         from .main import BetterAutoSpeed
-    except ImportError:
-        raise ImportError("Please re-run klipper_auto_speed/install.sh")
+    except ImportError as err:
+        # Chain the original error so the real cause (missing dependency, broken
+        # symlink, etc.) is visible in klippy.log instead of a generic message.
+        raise ImportError(
+            f"Failed to import better_auto_speed; please re-run "
+            f"klipper_auto_speed/install.sh ({err})") from err
     return BetterAutoSpeed(config)
