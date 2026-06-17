@@ -36,13 +36,19 @@ class AutoSpeed:
         self.max_missed      = config.getfloat(  'max_missed',      default=1.0)
         self.endstop_samples = config.getint(    'endstop_samples', default=3, minval=2)
 
-        self.accel_min  = config.getfloat('accel_min',  default=1000.0, above=1.0)
-        self.accel_max  = config.getfloat('accel_max',  default=100000.0, above=self.accel_min)
+        # None sentinel lets us tell "explicitly configured" from "absent" so
+        # size-derived defaults only apply when the user didn't set a value.
+        self._cfg_accel_min = config.getfloat('accel_min', None, above=1.0)
+        self._cfg_accel_max = config.getfloat('accel_max', None, above=1.0)
+        self.accel_min  = self._cfg_accel_min if self._cfg_accel_min is not None else 1000.0
+        self.accel_max  = self._cfg_accel_max if self._cfg_accel_max is not None else 100000.0
         self.accel_accu = config.getfloat('accel_accu', default=0.05, above=0.0, below=1.0)
         self.scv        = config.getfloat('scv', default=5, above=1.0, below=50)
 
-        self.veloc_min  = config.getfloat('velocity_min',  default=50.0, above=1.0)
-        self.veloc_max  = config.getfloat('velocity_max',  default=5000.0, above=self.veloc_min)
+        self._cfg_veloc_min = config.getfloat('velocity_min', None, above=1.0)
+        self._cfg_veloc_max = config.getfloat('velocity_max', None, above=1.0)
+        self.veloc_min  = self._cfg_veloc_min if self._cfg_veloc_min is not None else 50.0
+        self.veloc_max  = self._cfg_veloc_max if self._cfg_veloc_max is not None else 5000.0
         self.veloc_accu = config.getfloat('velocity_accu', default=0.05, above=0.0, below=1.0)
 
         self.derate = config.getfloat('derate', default=0.8, above=0.0, below=1.0)
@@ -261,11 +267,10 @@ class AutoSpeed:
             derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
             max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
 
-            accel_min  = gcmd.get_float('ACCEL_MIN', self.accel_min, above=1.0)
-            accel_max  = gcmd.get_float('ACCEL_MAX', self.accel_max, above=accel_min)
             accel_accu = gcmd.get_float('ACCEL_ACCU', self.accel_accu, above=0.0, below=1.0)
 
             veloc = gcmd.get_float('VELOCITY', 1.0, above=1.0)
+            veloc_stat = veloc if veloc != 1.0 else None
             scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
             respond = "AUTO SPEED finding maximum acceleration on"
@@ -282,11 +287,13 @@ class AutoSpeed:
                 aw.max_missed = max_missed
                 aw.margin = margin
 
-                aw.min = accel_min
-                aw.max  = accel_max
                 aw.veloc = veloc
                 aw.scv = scv
                 self.init_axis(aw, axis)
+                aw.min, aw.max = self._resolve_accel_bounds(gcmd, aw.move.max_dist, veloc_stat)
+                self.gcode.respond_info(
+                    f"AUTO SPEED accel range on {axis.upper().replace('_', ' ')}: "
+                    f"{aw.min:.0f} - {aw.max:.0f}")
                 rw.vals[aw.axis] = self.binary_search(aw)
             rw.duration = perf_counter() - start
 
@@ -323,11 +330,13 @@ class AutoSpeed:
             derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
             max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
 
-            veloc_min  = gcmd.get_float('VELOCITY_MIN', self.veloc_min, above=1.0)
-            veloc_max  = gcmd.get_float('VELOCITY_MAX', self.veloc_max, above=veloc_min)
             veloc_accu = gcmd.get_float('VELOCITY_ACCU', self.veloc_accu, above=0.0, below=1.0)
 
             accel = gcmd.get_float('ACCEL', 1.0, above=1.0)
+            # Accel ceiling used to size the reachable velocity (sqrt(accel * travel)):
+            # the fixed companion accel if one was given, otherwise the accel ceiling.
+            accel_ceiling = accel if accel != 1.0 else (
+                gcmd.get_float('ACCEL_MAX', None, above=1.0) or self._cfg_accel_max or 100000.0)
             scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
             respond = "AUTO SPEED finding maximum velocity on"
@@ -344,11 +353,13 @@ class AutoSpeed:
                 aw.max_missed = max_missed
                 aw.margin = margin
 
-                aw.min = veloc_min
-                aw.max  = veloc_max
                 aw.accel = accel
                 aw.scv = scv
                 self.init_axis(aw, axis)
+                aw.min, aw.max = self._resolve_veloc_bounds(gcmd, aw.move.max_dist, accel_ceiling)
+                self.gcode.respond_info(
+                    f"AUTO SPEED velocity range on {axis.upper().replace('_', ' ')}: "
+                    f"{aw.min:.0f} - {aw.max:.0f}")
                 rw.vals[aw.axis] = self.binary_search(aw)
             rw.duration = perf_counter() - start
 
@@ -571,6 +582,26 @@ class AutoSpeed:
             axes += f"{axis},"
         axes = axes[:-1]
         return axes
+
+    def _resolve_accel_bounds(self, gcmd, max_dist, veloc_stat):
+        accel_max = (gcmd.get_float('ACCEL_MAX', None, above=1.0)
+                     or self._cfg_accel_max or 100000.0)
+        # The size floor is only meaningful with a fixed companion velocity:
+        # the lowest accel must still let the move fit the available travel.
+        size_min = calculate_accel(veloc_stat, max_dist) if veloc_stat else None
+        accel_min = (gcmd.get_float('ACCEL_MIN', None, above=1.0)
+                     or self._cfg_accel_min or size_min or 1000.0)
+        accel_min = max(1.0, min(accel_min, accel_max - 1.0))
+        return accel_min, accel_max
+
+    def _resolve_veloc_bounds(self, gcmd, max_dist, accel_max):
+        size_max = calculate_velocity(accel_max, max_dist)  # sqrt(accel_max * D)
+        veloc_max = (gcmd.get_float('VELOCITY_MAX', None, above=1.0)
+                     or self._cfg_veloc_max or size_max)
+        veloc_min = (gcmd.get_float('VELOCITY_MIN', None, above=1.0)
+                     or self._cfg_veloc_min or 50.0)
+        veloc_min = max(1.0, min(veloc_min, veloc_max - 1.0))
+        return veloc_min, veloc_max
 
     def init_axis(self, aw: AttemptWrapper, axis):
         aw.axis = axis

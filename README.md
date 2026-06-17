@@ -186,11 +186,11 @@ SETTLING_HOME     | 1       | Perform settling home before starting Auto Speed
 MAX_MISSED        | 1.0     | Maximum full steps that can be missed
 ENDSTOP_SAMPLES   | 3       | How many endstop samples to take for endstop variance
 TEST_ATTEMPTS     | 2       | Re-test this many times if test fails
-ACCEL_MIN         | 1000.0  | Minimum acceleration test may try
-ACCEL_MAX         | 50000.0 | Maximum acceleration test may try
+ACCEL_MIN         | auto    | Minimum acceleration test may try (auto: from axis travel when a fixed VELOCITY is given, else 1000)
+ACCEL_MAX         | auto    | Maximum acceleration test may try (auto: 100000)
 ACCEL_ACCU        | 0.05    | Keep binary searching until the result is within this percentage
-VELOCITY_MIN      | 50.0    | Minimum velocity test may try
-VELOCITY_MAX      | 5000.0  | Maximum velocity test may try
+VELOCITY_MIN      | auto    | Minimum velocity test may try (auto: 50)
+VELOCITY_MAX      | auto    | Maximum velocity test may try (auto: `sqrt(accel_max * axis travel)`)
 VELOCITY_ACCU     | 0.05    | Keep binary searching until the result is within this percentage
 LEVEL             | 1       | Level the printer if it's not leveled
 VARIANCE          | 1       | Check endstop variance
@@ -212,8 +212,8 @@ On CoreXY (`corexy`/`hybrid_corexy`/`markforged`) the A/B motors share current: 
  MARGIN     | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE     | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED | 1.0     | Maximum fulls steps that can be missed
- ACCEL_MIN  | 1000.0  | Minimum acceleration test may try
- ACCEL_MAX  | 50000.0 | Maximum acceleration test may try
+ ACCEL_MIN  | auto    | Minimum acceleration test may try (auto: from axis travel when a fixed VELOCITY is given, else 1000)
+ ACCEL_MAX  | auto    | Maximum acceleration test may try (auto: 100000)
  ACCEL_ACCU | 0.05    | Keep binary searching until the result is within this percentage
  SAVE       | 0       | Queue recommended max_accel to `[printer]` (run `SAVE_CONFIG` to apply)
  X_CURRENT  | Unset   | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
@@ -231,8 +231,8 @@ On CoreXY (`corexy`/`hybrid_corexy`/`markforged`) the A/B motors share current: 
  MARGIN        | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE        | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
- VELOCITY_MIN  | 100.0   | Minimum velocity test may try
- VELOCITY_MAX  | 5000.0  | Maximum velocity test may try
+ VELOCITY_MIN  | auto    | Minimum velocity test may try (auto: 50)
+ VELOCITY_MAX  | auto    | Maximum velocity test may try (auto: `sqrt(accel_max * axis travel)`)
  VELOCITY_ACCU | 0.05    | Keep binary searching until the result is within this percentage
  SAVE          | 0       | Queue recommended max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)
  X_CURRENT     | Unset   | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
@@ -241,6 +241,8 @@ On CoreXY (`corexy`/`hybrid_corexy`/`markforged`) the A/B motors share current: 
  X_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to X during the run, restored after
  Y_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to Y during the run, restored after
  Z_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to Z during the run, restored after
+
+**Size-aware search bounds:** When you don't set them explicitly, the accel/velocity search bounds are derived per-axis from that axis's usable travel rather than fixed constants. The velocity ceiling is `sqrt(accel_max * travel)` (e.g. ~3464 mm/s on a 120 mm axis, ~7071 mm/s on a 500 mm axis), and the accel floor scales from travel when a fixed `VELOCITY` is supplied. `velocity_min` and `accel_max` are not travel-bounded and keep their defaults. Any value you set explicitly (config option or macro argument) always overrides the computed default. This is a behavior change from earlier fixed defaults (5000 mm/s, etc.); set `velocity_max`/`accel_min`/etc. explicitly to restore fixed values.
 
 #### AUTO_SPEED_VALIDATE
  `AUTO_SPEED_VALIDATE` validates a specified acceleration/velocity, using [Ellis' TEST_SPEED Pattern](https://github.com/AndrewEllis93/Print-Tuning-Guide/blob/main/macros/TEST_SPEED.cfg)
