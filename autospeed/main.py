@@ -205,185 +205,204 @@ class AutoSpeed:
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
         save = gcmd.get_int('SAVE', 0, minval=0, maxval=1)
 
-        self._prepare(gcmd) # Make sure the printer is level, [check endstop variance]
-
-        move_z = gcmd.get_int('Z', None)
-        if move_z is not None:
-            self._move([None, None, move_z], self.th_veloc)
-
-        # Let this command handle saving so accel/velocity are queued together.
+        # Apply current/homing-speed overrides once here, and neutralize the
+        # related params so nested sub-calls don't re-apply or re-save.
+        override_state = self._apply_overrides(gcmd)
+        for k in ("X_CURRENT", "Y_CURRENT", "Z_CURRENT",
+                  "X_HOMING_SPEED", "Y_HOMING_SPEED", "Z_HOMING_SPEED"):
+            gcmd._params.pop(k, None)
         gcmd._params["SAVE"] = 0
 
-        start = perf_counter()
-        accel_results = self.cmd_AUTO_SPEED_ACCEL(gcmd)
-        veloc_results = self.cmd_AUTO_SPEED_VELOCITY(gcmd)
+        try:
+            self._prepare(gcmd) # Make sure the printer is level, [check endstop variance]
 
-        respond = f"AUTO SPEED found recommended acceleration and velocity after {perf_counter() - start:.2f}s\n"
-        for axis in self.valid_axes:
-            aR = accel_results.vals.get(axis, None)
-            vR = veloc_results.vals.get(axis, None)
-            if aR is not None or vR is not None:
-                respond += f"| {axis.replace('_', ' ').upper()} max:"
-                if aR is not None:
-                    respond += f" a{aR:.0f}"
-                if vR is not None:
-                    respond += f" v{vR:.0f}"
-                respond += "\n"
+            move_z = gcmd.get_int('Z', None)
+            if move_z is not None:
+                self._move([None, None, move_z], self.th_veloc)
 
-        respond += f"Recommended accel: {accel_results.vals['rec']:.0f}\n"
-        respond += f"Recommended velocity: {veloc_results.vals['rec']:.0f}\n"
-        self.gcode.respond_info(respond)
+            start = perf_counter()
+            accel_results = self.cmd_AUTO_SPEED_ACCEL(gcmd)
+            veloc_results = self.cmd_AUTO_SPEED_VELOCITY(gcmd)
 
-        if save:
-            self._save_to_config(gcmd, accel=accel_results.vals['rec'], velocity=veloc_results.vals['rec'])
+            respond = f"AUTO SPEED found recommended acceleration and velocity after {perf_counter() - start:.2f}s\n"
+            for axis in self.valid_axes:
+                aR = accel_results.vals.get(axis, None)
+                vR = veloc_results.vals.get(axis, None)
+                if aR is not None or vR is not None:
+                    respond += f"| {axis.replace('_', ' ').upper()} max:"
+                    if aR is not None:
+                        respond += f" a{aR:.0f}"
+                    if vR is not None:
+                        respond += f" v{vR:.0f}"
+                    respond += "\n"
 
-        if validate:
-            gcmd._params["ACCEL"] = accel_results.vals['rec']
-            gcmd._params["VELOCITY"] = veloc_results.vals['rec']
-            self.cmd_AUTO_SPEED_VALIDATE(gcmd)
+            respond += f"Recommended accel: {accel_results.vals['rec']:.0f}\n"
+            respond += f"Recommended velocity: {veloc_results.vals['rec']:.0f}\n"
+            self.gcode.respond_info(respond)
+
+            if save:
+                self._save_to_config(gcmd, accel=accel_results.vals['rec'], velocity=veloc_results.vals['rec'])
+
+            if validate:
+                gcmd._params["ACCEL"] = accel_results.vals['rec']
+                gcmd._params["VELOCITY"] = veloc_results.vals['rec']
+                self.cmd_AUTO_SPEED_VALIDATE(gcmd)
+        finally:
+            self._restore_overrides(override_state)
 
     cmd_AUTO_SPEED_ACCEL_help = ("Automatically find your printer's maximum acceleration")
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
         self._check_homed(gcmd)
-        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        override_state = self._apply_overrides(gcmd)
+        try:
+            axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
-        margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
-        derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
-        max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+            margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
+            derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
+            max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
 
-        accel_min  = gcmd.get_float('ACCEL_MIN', self.accel_min, above=1.0)
-        accel_max  = gcmd.get_float('ACCEL_MAX', self.accel_max, above=accel_min)
-        accel_accu = gcmd.get_float('ACCEL_ACCU', self.accel_accu, above=0.0, below=1.0)
+            accel_min  = gcmd.get_float('ACCEL_MIN', self.accel_min, above=1.0)
+            accel_max  = gcmd.get_float('ACCEL_MAX', self.accel_max, above=accel_min)
+            accel_accu = gcmd.get_float('ACCEL_ACCU', self.accel_accu, above=0.0, below=1.0)
 
-        veloc = gcmd.get_float('VELOCITY', 1.0, above=1.0)
-        scv =   gcmd.get_float('SCV', self.scv, above=1.0)
+            veloc = gcmd.get_float('VELOCITY', 1.0, above=1.0)
+            scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
-        respond = "AUTO SPEED finding maximum acceleration on"
-        for axis in axes:
-            respond += f" {axis.upper().replace('_', ' ')},"
-        self.gcode.respond_info(respond[:-1])
+            respond = "AUTO SPEED finding maximum acceleration on"
+            for axis in axes:
+                respond += f" {axis.upper().replace('_', ' ')},"
+            self.gcode.respond_info(respond[:-1])
 
-        rw = ResultsWrapper()
-        start = perf_counter()
-        for axis in axes:
-            aw = AttemptWrapper()
-            aw.type = "accel"
-            aw.accuracy = accel_accu
-            aw.max_missed = max_missed
-            aw.margin = margin
+            rw = ResultsWrapper()
+            start = perf_counter()
+            for axis in axes:
+                aw = AttemptWrapper()
+                aw.type = "accel"
+                aw.accuracy = accel_accu
+                aw.max_missed = max_missed
+                aw.margin = margin
 
-            aw.min = accel_min
-            aw.max  = accel_max
-            aw.veloc = veloc
-            aw.scv = scv
-            self.init_axis(aw, axis)
-            rw.vals[aw.axis] = self.binary_search(aw)
-        rw.duration = perf_counter() - start
+                aw.min = accel_min
+                aw.max  = accel_max
+                aw.veloc = veloc
+                aw.scv = scv
+                self.init_axis(aw, axis)
+                rw.vals[aw.axis] = self.binary_search(aw)
+            rw.duration = perf_counter() - start
 
-        rw.name = "acceleration"
-        respond = f"AUTO SPEED found maximum acceleration after {rw.duration:.2f}s\n"
-        for axis in self.valid_axes:
-            if rw.vals.get(axis, None) is not None:
-                respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
-        respond += f"\n"
+            rw.name = "acceleration"
+            respond = f"AUTO SPEED found maximum acceleration after {rw.duration:.2f}s\n"
+            for axis in self.valid_axes:
+                if rw.vals.get(axis, None) is not None:
+                    respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
+            respond += f"\n"
 
-        rw.derate(derate)
-        respond += f"Recommended values:\n"
-        for axis in self.valid_axes:
-            if rw.vals.get(axis, None) is not None:
-                respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
-        respond += f"Recommended acceleration: {rw.vals['rec']:.0f}\n"
+            rw.derate(derate)
+            respond += f"Recommended values:\n"
+            for axis in self.valid_axes:
+                if rw.vals.get(axis, None) is not None:
+                    respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
+            respond += f"Recommended acceleration: {rw.vals['rec']:.0f}\n"
 
-        self.gcode.respond_info(respond)
+            self.gcode.respond_info(respond)
 
-        if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
-            self._save_to_config(gcmd, accel=rw.vals['rec'])
-        return rw
+            if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
+                self._save_to_config(gcmd, accel=rw.vals['rec'])
+            return rw
+        finally:
+            self._restore_overrides(override_state)
 
     cmd_AUTO_SPEED_VELOCITY_help = ("Automatically find your printer's maximum velocity")
     def cmd_AUTO_SPEED_VELOCITY(self, gcmd):
         self._check_homed(gcmd)
-        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        override_state = self._apply_overrides(gcmd)
+        try:
+            axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
-        margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
-        derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
-        max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+            margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
+            derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
+            max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
 
-        veloc_min  = gcmd.get_float('VELOCITY_MIN', self.veloc_min, above=1.0)
-        veloc_max  = gcmd.get_float('VELOCITY_MAX', self.veloc_max, above=veloc_min)
-        veloc_accu = gcmd.get_float('VELOCITY_ACCU', self.veloc_accu, above=0.0, below=1.0)
+            veloc_min  = gcmd.get_float('VELOCITY_MIN', self.veloc_min, above=1.0)
+            veloc_max  = gcmd.get_float('VELOCITY_MAX', self.veloc_max, above=veloc_min)
+            veloc_accu = gcmd.get_float('VELOCITY_ACCU', self.veloc_accu, above=0.0, below=1.0)
 
-        accel = gcmd.get_float('ACCEL', 1.0, above=1.0)
-        scv =   gcmd.get_float('SCV', self.scv, above=1.0)
+            accel = gcmd.get_float('ACCEL', 1.0, above=1.0)
+            scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
-        respond = "AUTO SPEED finding maximum velocity on"
-        for axis in axes:
-            respond += f" {axis.upper().replace('_', ' ')},"
-        self.gcode.respond_info(respond[:-1])
+            respond = "AUTO SPEED finding maximum velocity on"
+            for axis in axes:
+                respond += f" {axis.upper().replace('_', ' ')},"
+            self.gcode.respond_info(respond[:-1])
 
-        rw = ResultsWrapper()
-        start = perf_counter()
-        for axis in axes:
-            aw = AttemptWrapper()
-            aw.type = "velocity"
-            aw.accuracy  = veloc_accu
-            aw.max_missed = max_missed
-            aw.margin = margin
+            rw = ResultsWrapper()
+            start = perf_counter()
+            for axis in axes:
+                aw = AttemptWrapper()
+                aw.type = "velocity"
+                aw.accuracy  = veloc_accu
+                aw.max_missed = max_missed
+                aw.margin = margin
 
-            aw.min = veloc_min
-            aw.max  = veloc_max
-            aw.accel = accel
-            aw.scv = scv
-            self.init_axis(aw, axis)
-            rw.vals[aw.axis] = self.binary_search(aw)
-        rw.duration = perf_counter() - start
+                aw.min = veloc_min
+                aw.max  = veloc_max
+                aw.accel = accel
+                aw.scv = scv
+                self.init_axis(aw, axis)
+                rw.vals[aw.axis] = self.binary_search(aw)
+            rw.duration = perf_counter() - start
 
-        rw.name = "velocity"
-        respond = f"AUTO SPEED found maximum velocity after {rw.duration:.2f}s\n"
-        for axis in self.valid_axes:
-            if rw.vals.get(axis, None) is not None:
-                respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
-        respond += "\n"
+            rw.name = "velocity"
+            respond = f"AUTO SPEED found maximum velocity after {rw.duration:.2f}s\n"
+            for axis in self.valid_axes:
+                if rw.vals.get(axis, None) is not None:
+                    respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
+            respond += "\n"
 
-        rw.derate(derate)
-        respond += f"Recommended values\n"
-        for axis in self.valid_axes:
-            if rw.vals.get(axis, None) is not None:
-                respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
-        respond += f"Recommended velocity: {rw.vals['rec']:.0f}\n"
+            rw.derate(derate)
+            respond += f"Recommended values\n"
+            for axis in self.valid_axes:
+                if rw.vals.get(axis, None) is not None:
+                    respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
+            respond += f"Recommended velocity: {rw.vals['rec']:.0f}\n"
 
-        self.gcode.respond_info(respond)
+            self.gcode.respond_info(respond)
 
-        if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
-            self._save_to_config(gcmd, velocity=rw.vals['rec'])
-        return rw
+            if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
+                self._save_to_config(gcmd, velocity=rw.vals['rec'])
+            return rw
+        finally:
+            self._restore_overrides(override_state)
 
     cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
         self._check_homed(gcmd)
+        override_state = self._apply_overrides(gcmd)
+        try:
+            max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+            margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
+            small_margin = gcmd.get_float('VALIDATE_INNER_MARGIN', default=self.validate_inner_margin, above=0.0)
+            iterations   = gcmd.get_int('VALIDATE_ITERATIONS', default=self.validate_iterations, minval=1)
 
-        max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
-        margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
-        small_margin = gcmd.get_float('VALIDATE_INNER_MARGIN', default=self.validate_inner_margin, above=0.0)
-        iterations   = gcmd.get_int('VALIDATE_ITERATIONS', default=self.validate_iterations, minval=1)
+            accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0)
+            veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
+            scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
 
-        accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0)
-        veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
-        scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
+            respond = f"AUTO SPEED validating over {iterations} iterations\n"
+            respond += f"Acceleration: {accel:.0f}\n"
+            respond += f"Velocity: {veloc:.0f}\n"
+            respond += f"SCV: {scv:.0f}"
+            self.gcode.respond_info(respond)
+            self._set_velocity(veloc, accel, scv)
+            valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed)
 
-        respond = f"AUTO SPEED validating over {iterations} iterations\n"
-        respond += f"Acceleration: {accel:.0f}\n"
-        respond += f"Velocity: {veloc:.0f}\n"
-        respond += f"SCV: {scv:.0f}"
-        self.gcode.respond_info(respond)
-        self._set_velocity(veloc, accel, scv)
-        valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed)
-
-        respond = f"AUTO SPEED validated results after {duration:.2f}s\n"
-        respond += f"Valid: {valid}\n"
-        respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f}"
-        self.gcode.respond_info(respond)
-        return valid
+            respond = f"AUTO SPEED validated results after {duration:.2f}s\n"
+            respond += f"Valid: {valid}\n"
+            respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f}"
+            self.gcode.respond_info(respond)
+            return valid
+        finally:
+            self._restore_overrides(override_state)
 
     cmd_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
@@ -830,6 +849,101 @@ class AutoSpeed:
         self.toolhead.requested_accel_to_decel = accel
         self.toolhead.square_corner_velocity = scv
         self.toolhead._calc_junction_deviation()
+
+    TMC_DRIVERS = ("tmc2209", "tmc2208", "tmc2240", "tmc5160", "tmc2130", "tmc2660", "tmc2160")
+
+    def _axis_stepper_names(self, axis):
+        # All motors on an axis: stepper_<axis> or stepper_<axis><digits>
+        kin = self.toolhead.get_kinematics()
+        prefix = f"stepper_{axis}"
+        names = []
+        for s in kin.get_steppers():
+            n = s.get_name()
+            if n.startswith(prefix):
+                rest = n[len(prefix):]
+                if rest == "" or rest.isdigit():
+                    names.append(n)
+        return names
+
+    def _axis_rails(self, axis):
+        target = set(self._axis_stepper_names(axis))
+        kin = self.toolhead.get_kinematics()
+        return [rail for rail in getattr(kin, "rails", [])
+                if any(s.get_name() in target for s in rail.get_steppers())]
+
+    def _find_tmc(self, stepper_name):
+        for drv in self.TMC_DRIVERS:
+            obj = self.printer.lookup_object(f"{drv} {stepper_name}", None)
+            if obj is not None:
+                return obj
+        return None
+
+    def _xy_coupled(self):
+        return self.printer_kinematics in ("corexy", "hybrid_corexy", "markforged")
+
+    def _apply_overrides(self, gcmd):
+        state = {"currents": [], "rails": []}
+        applied = []
+
+        # Resolve current per axis, with CoreXY A/B coupling.
+        xc = gcmd.get_float("X_CURRENT", None, above=0.0)
+        yc = gcmd.get_float("Y_CURRENT", None, above=0.0)
+        zc = gcmd.get_float("Z_CURRENT", None, above=0.0)
+        current_by_axis = {}
+        if self._xy_coupled():
+            if xc is not None and yc is not None and abs(xc - yc) > 1e-9:
+                self.gcode.respond_info(
+                    "AUTO SPEED warning: CoreXY A/B motors normally share current; "
+                    "applying X_CURRENT to stepper_x and Y_CURRENT to stepper_y as given")
+                current_by_axis["x"], current_by_axis["y"] = xc, yc
+            else:
+                val = xc if xc is not None else yc
+                if val is not None:
+                    current_by_axis["x"] = current_by_axis["y"] = val
+        else:
+            if xc is not None:
+                current_by_axis["x"] = xc
+            if yc is not None:
+                current_by_axis["y"] = yc
+        if zc is not None:
+            current_by_axis["z"] = zc
+
+        for axis, cur in current_by_axis.items():
+            for name in self._axis_stepper_names(axis):
+                tmc = self._find_tmc(name)
+                if tmc is None:
+                    self.gcode.respond_info(f"AUTO SPEED: no TMC driver for {name}, skipping current")
+                    continue
+                orig = tmc.get_status(self.printer.get_reactor().monotonic())["run_current"]
+                state["currents"].append((name, orig))
+                self.gcode._process_commands([f"SET_TMC_CURRENT STEPPER={name} CURRENT={cur:.3f}"], False)
+                applied.append(f"{name} I={cur:.2f}A")
+
+        # Homing speed is always per-axis / independent.
+        for axis in ("x", "y", "z"):
+            hs = gcmd.get_float(f"{axis.upper()}_HOMING_SPEED", None, above=0.0)
+            if hs is not None:
+                for rail in self._axis_rails(axis):
+                    state["rails"].append((rail, rail.homing_speed, getattr(rail, "homing_retract_speed", None)))
+                    rail.homing_speed = hs
+                    if hasattr(rail, "homing_retract_speed"):
+                        rail.homing_retract_speed = hs
+                    applied.append(f"{axis} home={hs:.0f}mm/s")
+
+        if not state["currents"] and not state["rails"]:
+            return None
+        self.gcode.respond_info("AUTO SPEED applied overrides: " + ", ".join(applied))
+        return state
+
+    def _restore_overrides(self, state):
+        if not state:
+            return
+        for name, orig in state["currents"]:
+            self.gcode._process_commands([f"SET_TMC_CURRENT STEPPER={name} CURRENT={orig:.3f}"], False)
+        for rail, homing_speed, homing_retract_speed in state["rails"]:
+            rail.homing_speed = homing_speed
+            if homing_retract_speed is not None:
+                rail.homing_retract_speed = homing_retract_speed
 
     def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
 

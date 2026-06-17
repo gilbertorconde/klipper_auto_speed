@@ -63,8 +63,8 @@ Using Ellis' pattern (AUTO_SPEED_VALIDATE) is **NOT** a safe movement pattern. P
    - [ ] Add AUTO_SPEED ACCEL=10000 - to find what velocity lets you use accel 10000
    - [ ] Add AUTO_SPEED VELOC=500 - to find what accel lets you use velocity 500
    - [ ] Make AUTO_SPEED measure different accels/velocity to find the best values based on printer size
- - [ ] Variable motor current
- - [ ] Variable homing speed
+ - [X] Variable motor current
+ - [X] Variable homing speed
  - [X] Add testing Z axis
  - [X] Reduce code duplication
  - [X] Check kinematics to find best movement patterns
@@ -195,6 +195,14 @@ VELOCITY_ACCU     | 0.05    | Keep binary searching until the result is within t
 LEVEL             | 1       | Level the printer if it's not leveled
 VARIANCE          | 1       | Check endstop variance
 SAVE              | 0       | Queue recommended max_accel/max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)
+X_CURRENT         | Unset   | Motor run-current (A) applied to the X axis during the run, restored after (requires TMC drivers)
+Y_CURRENT         | Unset   | Motor run-current (A) applied to the Y axis during the run, restored after (requires TMC drivers)
+Z_CURRENT         | Unset   | Motor run-current (A) applied to the Z axis during the run, restored after (requires TMC drivers)
+X_HOMING_SPEED    | Unset   | Homing speed (mm/s) applied to the X axis during the run, restored after
+Y_HOMING_SPEED    | Unset   | Homing speed (mm/s) applied to the Y axis during the run, restored after
+Z_HOMING_SPEED    | Unset   | Homing speed (mm/s) applied to the Z axis during the run, restored after
+
+On CoreXY (`corexy`/`hybrid_corexy`/`markforged`) the A/B motors share current: a single `X_CURRENT` or `Y_CURRENT` is applied to both `stepper_x` and `stepper_y`; passing both with different values is allowed but warns. Current applies to every motor on an axis (e.g. dual/quad Z). Homing speed is always per-axis.
 
 #### AUTO_SPEED_ACCEL
  `AUTO_SPEED_ACCEL` find maximum acceleration
@@ -208,6 +216,12 @@ SAVE              | 0       | Queue recommended max_accel/max_velocity to `[prin
  ACCEL_MAX  | 50000.0 | Maximum acceleration test may try
  ACCEL_ACCU | 0.05    | Keep binary searching until the result is within this percentage
  SAVE       | 0       | Queue recommended max_accel to `[printer]` (run `SAVE_CONFIG` to apply)
+ X_CURRENT  | Unset   | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
+ Y_CURRENT  | Unset   | Motor run-current (A) applied to Y during the run, restored after (requires TMC drivers)
+ Z_CURRENT  | Unset   | Motor run-current (A) applied to Z during the run, restored after (requires TMC drivers)
+ X_HOMING_SPEED | Unset | Homing speed (mm/s) applied to X during the run, restored after
+ Y_HOMING_SPEED | Unset | Homing speed (mm/s) applied to Y during the run, restored after
+ Z_HOMING_SPEED | Unset | Homing speed (mm/s) applied to Z during the run, restored after
 
 #### AUTO_SPEED_VELOCITY
  `AUTO_SPEED_VELOCITY` finds maximum velocity
@@ -221,6 +235,12 @@ SAVE              | 0       | Queue recommended max_accel/max_velocity to `[prin
  VELOCITY_MAX  | 5000.0  | Maximum velocity test may try
  VELOCITY_ACCU | 0.05    | Keep binary searching until the result is within this percentage
  SAVE          | 0       | Queue recommended max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)
+ X_CURRENT     | Unset   | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
+ Y_CURRENT     | Unset   | Motor run-current (A) applied to Y during the run, restored after (requires TMC drivers)
+ Z_CURRENT     | Unset   | Motor run-current (A) applied to Z during the run, restored after (requires TMC drivers)
+ X_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to X during the run, restored after
+ Y_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to Y during the run, restored after
+ Z_HOMING_SPEED | Unset  | Homing speed (mm/s) applied to Z during the run, restored after
 
 #### AUTO_SPEED_VALIDATE
  `AUTO_SPEED_VALIDATE` validates a specified acceleration/velocity, using [Ellis' TEST_SPEED Pattern](https://github.com/AndrewEllis93/Print-Tuning-Guide/blob/main/macros/TEST_SPEED.cfg)
@@ -232,6 +252,12 @@ SAVE              | 0       | Queue recommended max_accel/max_velocity to `[prin
  VALIDATE_ITERATIONS   | 50      | Repeat the pattern this many times
  ACCEL                 | Unset   | Defaults to current max accel
  VELOCITY              | Unset   | Defaults to current max velocity
+ X_CURRENT             | Unset   | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
+ Y_CURRENT             | Unset   | Motor run-current (A) applied to Y during the run, restored after (requires TMC drivers)
+ Z_CURRENT             | Unset   | Motor run-current (A) applied to Z during the run, restored after (requires TMC drivers)
+ X_HOMING_SPEED        | Unset   | Homing speed (mm/s) applied to X during the run, restored after
+ Y_HOMING_SPEED        | Unset   | Homing speed (mm/s) applied to Y during the run, restored after
+ Z_HOMING_SPEED        | Unset   | Homing speed (mm/s) applied to Z during the run, restored after
 
 
 #### AUTO_SPEED_GRAPH
