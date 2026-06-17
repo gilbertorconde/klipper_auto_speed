@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Better Auto Speed" width="420">
+  <img src="assets/logo.png" alt="Better Auto Speed" width="230">
 </p>
 
 # Better Auto Speed
