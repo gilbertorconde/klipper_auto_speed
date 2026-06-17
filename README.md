@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Better Auto Speed" width="420">
+</p>
+
 # Better Auto Speed
 
 Klipper module for automatically calculating your printer's maximum acceleration/velocity
