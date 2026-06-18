@@ -5,24 +5,27 @@
 #
 # This file may be distributed under the terms of the MIT license.
 #
-# Per-axis endstop repeatability checks (X/Y/Z_ENDSTOP_ACCURACY). Mixed into
-# BetterAutoSpeed.
+# Per-axis endstop repeatability checks (X/Y/Z_ENDSTOP_ACCURACY).
 
 
-class EndstopAccuracyMixin:
+class EndstopAccuracy:
+    def __init__(self, machine, motion):
+        self.machine = machine
+        self.motion = motion
+
     def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
 
-        self._check_homed(gcmd)
+        self.machine.check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
 
         # Retrieve homing parameters for the X axis from the previously stored values
-        second_homing_speed = self.steppers['x'][4]
-        homing_retract_dist = self.steppers['x'][3]
+        second_homing_speed = self.machine.steppers['x'][4]
+        homing_retract_dist = self.machine.steppers['x'][3]
 
         # Toolhead object to control the movement
-        toolhead = self.printer.lookup_object('toolhead')
+        toolhead = self.machine.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
 
         # Log the starting position for X
@@ -34,7 +37,7 @@ class EndstopAccuracyMixin:
         # Create a dummy gcode command for a single sample
         fo_params = dict(gcmd.get_command_parameters())
         fo_params['SAMPLES'] = '1'
-        gcode = self.printer.lookup_object('gcode')
+        gcode = self.machine.printer.lookup_object('gcode')
         fo_gcmd = gcode.create_gcode_command("", "", fo_params)
 
         # List to store the X positions hit during each sample
@@ -42,7 +45,7 @@ class EndstopAccuracyMixin:
 
         # Move to the X endstop sample_count times and collect the X positions
         for _ in range(sample_count):
-            self._home(True, False, False)
+            self.motion.home(True, False, False)
             pos = toolhead.get_position()  # Get the current X position after homing
             positions.append(pos[0])
             toolhead.manual_move([pos[0] - homing_retract_dist, None, None], speed=second_homing_speed)  # Move away from the endstop
@@ -64,17 +67,17 @@ class EndstopAccuracyMixin:
 
     def cmd_Y_ENDSTOP_ACCURACY(self, gcmd):
 
-        self._check_homed(gcmd)
+        self.machine.check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
 
         # Retrieve homing parameters for the Y axis from the previously stored values
-        second_homing_speed = self.steppers['y'][4]
-        homing_retract_dist = self.steppers['y'][3]
+        second_homing_speed = self.machine.steppers['y'][4]
+        homing_retract_dist = self.machine.steppers['y'][3]
 
         # Toolhead object to control the movement
-        toolhead = self.printer.lookup_object('toolhead')
+        toolhead = self.machine.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
 
         # Log the starting position for Y
@@ -86,7 +89,7 @@ class EndstopAccuracyMixin:
         # Create a dummy gcode command for a single sample
         fo_params = dict(gcmd.get_command_parameters())
         fo_params['SAMPLES'] = '1'
-        gcode = self.printer.lookup_object('gcode')
+        gcode = self.machine.printer.lookup_object('gcode')
         fo_gcmd = gcode.create_gcode_command("", "", fo_params)
 
         # List to store the Y positions hit during each sample
@@ -94,7 +97,7 @@ class EndstopAccuracyMixin:
 
         # Move to the Y endstop sample_count times and collect the Y positions
         for _ in range(sample_count):
-            self._home(False, True, False)
+            self.motion.home(False, True, False)
             pos = toolhead.get_position()  # Get the current Y position after homing
             positions.append(pos[1])
             toolhead.manual_move([None, pos[1] - homing_retract_dist, None], speed=second_homing_speed)  # Move away from the endstop
@@ -115,17 +118,17 @@ class EndstopAccuracyMixin:
 
     def cmd_Z_ENDSTOP_ACCURACY(self, gcmd):
 
-        self._check_homed(gcmd)
+        self.machine.check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
 
         # Retrieve homing parameters for the Z axis from the previously stored values
-        second_homing_speed = self.steppers['z'][4]
-        homing_retract_dist = self.steppers['z'][3]
+        second_homing_speed = self.machine.steppers['z'][4]
+        homing_retract_dist = self.machine.steppers['z'][3]
 
         # Toolhead object to control the movement
-        toolhead = self.printer.lookup_object('toolhead')
+        toolhead = self.machine.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
 
         # Log the starting position for Z
@@ -137,7 +140,7 @@ class EndstopAccuracyMixin:
         # Create a dummy gcode command for a single sample
         fo_params = dict(gcmd.get_command_parameters())
         fo_params['SAMPLES'] = '1'
-        gcode = self.printer.lookup_object('gcode')
+        gcode = self.machine.printer.lookup_object('gcode')
         fo_gcmd = gcode.create_gcode_command("", "", fo_params)
 
         # List to store the Z positions hit during each sample
@@ -145,7 +148,7 @@ class EndstopAccuracyMixin:
 
         # Move to the Z endstop sample_count times and collect the Z positions
         for _ in range(sample_count):
-            self._home(False, False, True)
+            self.motion.home(False, False, True)
             pos = toolhead.get_position()  # Get the current Z position after homing
             positions.append(pos[2])
             toolhead.manual_move([None, None, pos[2] + homing_retract_dist], speed=second_homing_speed)  # Move away from the endstop
