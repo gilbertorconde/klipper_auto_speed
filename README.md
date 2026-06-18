@@ -275,7 +275,7 @@ MAX_MISSED | 1.0 | Maximum fulls steps that can be missed
 ACCEL_MIN | auto | Minimum acceleration test may try (auto: from axis travel when a fixed VELOCITY is given, else 1000)
 ACCEL_MAX | auto | Maximum acceleration test may try (auto: 100000)
 ACCEL_ACCU | 0.05 | Keep binary searching until the result is within this percentage
-SAVE | 0 | Queue recommended max_accel to `[printer]` (run `SAVE_CONFIG` to apply)
+SAVE | 1 | Queue recommended max_accel to `[printer]` (run `SAVE_CONFIG` to apply). Set `SAVE=0` to only print the result
 X_CURRENT | Unset | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
 Y_CURRENT | Unset | Motor run-current (A) applied to Y during the run, restored after (requires TMC drivers)
 Z_CURRENT | Unset | Motor run-current (A) applied to Z during the run, restored after (requires TMC drivers)
@@ -295,7 +295,7 @@ MAX_MISSED | 1.0 | Maximum fulls steps that can be missed
 VELOCITY_MIN | auto | Minimum velocity test may try (auto: 50)
 VELOCITY_MAX | auto | Maximum velocity test may try (auto: `sqrt(accel_max * axis travel)`)
 VELOCITY_ACCU | 0.05 | Keep binary searching until the result is within this percentage
-SAVE | 0 | Queue recommended max_velocity to `[printer]` (run `SAVE_CONFIG` to apply)
+SAVE | 1 | Queue recommended max_velocity to `[printer]` (run `SAVE_CONFIG` to apply). Set `SAVE=0` to only print the result
 X_CURRENT | Unset | Motor run-current (A) applied to X during the run, restored after (requires TMC drivers)
 Y_CURRENT | Unset | Motor run-current (A) applied to Y during the run, restored after (requires TMC drivers)
 Z_CURRENT | Unset | Motor run-current (A) applied to Z during the run, restored after (requires TMC drivers)
@@ -336,8 +336,8 @@ You must specify `VELOCITY_MIN` and `VELOCITY_MAX`.
 | MAX_MISSED      | 1.0     | Maximum fulls steps that can be missed                             |
 | VELOCITY_MIN    | Unset   | Minimum velocity test may try                                      |
 | VELOCITY_MAX    | Unset   | Maximum velocity test may try                                      |
-| VELOCITY_DIV    | 5       | How many velocities to test                                        |
-| VELOCITY_ACCU   | 0.05    | Keep binary searching until the result within this percent         |
+| VELOCITY_DIV    | 5       | How many velocities to test (minimum 2)                            |
+| ACCEL_ACCU      | 0.05    | Keep binary searching until the result within this percent         |
 | ACCEL_MIN_SLOPE | 100     | Calculated min slope value $\frac{10000}{velocity \div slope}$     |
 | ACCEL_MAX_SLOPE | 1800    | Calculated max slope value $\frac{10000}{velocity \div slope}$     |
 

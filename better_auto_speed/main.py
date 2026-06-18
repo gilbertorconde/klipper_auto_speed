@@ -468,7 +468,7 @@ class BetterAutoSpeed:
 
             self.gcode.respond_info(respond)
 
-            if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
+            if gcmd.get_int('SAVE', 1, minval=0, maxval=1):
                 self._save_to_config(gcmd, accel=rw.vals['rec'])
             return rw
         finally:
@@ -536,7 +536,7 @@ class BetterAutoSpeed:
 
             self.gcode.respond_info(respond)
 
-            if gcmd.get_int('SAVE', 0, minval=0, maxval=1):
+            if gcmd.get_int('SAVE', 1, minval=0, maxval=1):
                 self._save_to_config(gcmd, velocity=rw.vals['rec'])
             return rw
         finally:
@@ -555,7 +555,7 @@ class BetterAutoSpeed:
 
             accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0)
             veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
-            scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
+            scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
             respond = f"BETTER AUTO SPEED validating over {iterations} iterations\n"
             respond += f"Acceleration: {accel:.0f}\n"
@@ -587,13 +587,13 @@ class BetterAutoSpeed:
         derate     = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
         max_missed = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
         
-        scv        = gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
+        scv        = gcmd.get_float('SCV', self.scv, above=1.0)
 
         veloc_min  = gcmd.get_float('VELOCITY_MIN', 200.0, above=0.0)
         veloc_max  = gcmd.get_float('VELOCITY_MAX', 700.0, above=veloc_min)
-        veloc_div  = gcmd.get_int(  'VELOCITY_DIV', 5, minval=0)
+        veloc_div  = gcmd.get_int(  'VELOCITY_DIV', 5, minval=2)
 
-        accel_accu = gcmd.get_float('ACCEL_ACCU', 0.05, above=0.0, below=1.0)
+        accel_accu = gcmd.get_float('ACCEL_ACCU', self.accel_accu, above=0.0, below=1.0)
 
         accel_min_slope = gcmd.get_int('ACCEL_MIN_SLOPE', 100, minval=0)
         accel_max_slope = gcmd.get_int('ACCEL_MAX_SLOPE', 1800, minval=accel_min_slope)
